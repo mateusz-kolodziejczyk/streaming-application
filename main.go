@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	ffmpeg "github.com/mateusz-kolodziejczyk/ffmpeg-go"
 	"log"
@@ -35,10 +36,15 @@ func hlsStream(streamKey string, streamName string){
 }
 func main() {
 	cmd := exec.Command("/bin/sh", "-c", "rm " + fmt.Sprintf("%s/%s/*", ServerDirectory, StreamDirectory))
-	err := cmd.Run()
+	stderr, _ := cmd.StderrPipe()
+	err := cmd.Start()
+	scanner := bufio.NewScanner(stderr)
+	for scanner.Scan(){
+		fmt.Println(scanner.Text())
+	}
 	if err != nil{
 		log.Fatal(err)
 	}
-	hlsStream("cool", "firstStream")
+	hlsStream("cool", "camera")
 }
 
