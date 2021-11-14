@@ -11,7 +11,6 @@ require (
 
 require (
 	github.com/aws/aws-sdk-go v1.38.20 // indirect
-	github.com/mateusz-kolodziejczyk/ffmpeg-go v0.3.2-0.20211114170714-8b94e2331e66 // indirect
 	github.com/torresjeff/rtmp v0.0.0-20210303201626-9aba915a956e // indirect
 	github.com/u2takey/go-utils v0.0.0-20210821132353-e90f7c6bacb5 // indirect
 )
