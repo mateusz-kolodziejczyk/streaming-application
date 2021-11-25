@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
+	"os/exec"
+	"runtime"
+	"syscall"
 
 	//"io"
 	"log"
@@ -27,9 +31,8 @@ const MaxBitrate float64 = 5
 
 func constructHLSArgs(hls_time string, hls_wrap string, hls_playlist_type string, hls_flags string, hls_segment_filename string, master_pl_name string, hls_segment_type string, nSplits int) string {
 	s := ""
-	s += fmt.Sprintf("-f hls -hls_time %s -hls_wrap %s -hls_playlist_type %s -hls_flags %s -hls_segment_type %s -master_pl_name %s %s -hls_segment_filename %s",
-		hls_time, hls_wrap, hls_playlist_type, hls_flags, hls_segment_type, master_pl_name, constructValStreamMap(nSplits),  hls_segment_filename)
-	s += " "
+	s += fmt.Sprintf("-f hls -hls_time %s -hls_wrap %s -hls_playlist_type %s -hls_flags %s -hls_segment_type %s -master_pl_name %s -hls_segment_filename %s",
+		hls_time, hls_wrap, hls_playlist_type, hls_flags, hls_segment_type, master_pl_name, hls_segment_filename)
 	return s
 }
 
@@ -42,18 +45,18 @@ func constructFilterArgs(prefix string, nSplits int) string{
 	nSplits = validateNumberOfSplits(nSplits)
 	// Add the start of the command
 	s += "-filter_complex "
-	s += fmt.Sprintf("\"[0:v]split=%d", nSplits)
+	s += fmt.Sprintf("[0:v]split=%d", nSplits)
 	for i := 0; i < nSplits; i ++ {
 		s += fmt.Sprintf("[%s%d]", prefix, i)
 	}
-	s += "; "
+	s += ";"
 	for i := 0; i < nSplits; i++{
 		s += fmt.Sprintf("[%s%d]scale=w=%d:h=%d[%s%dout]", prefix, i, outputResolutions[i][0], outputResolutions[i][1], prefix, i)
 		if i+1 == nSplits{
-			s+="\" "
+			s+=" "
 			break
 		}
-		s += "; "
+		s += ";"
 	}
 	return s
 }
@@ -74,13 +77,13 @@ func constructMapArgs(prefix string, nSplits int, preset string, g int) string{
 	return s
 }
 
-func constructValStreamMap(nSplits int) string{
+func constructVarStreamMap(nSplits int) string{
 	nSplits = validateNumberOfSplits(nSplits)
-	s := "-var_stream_map \""
+	s := ""
 	for i := 0; i < nSplits; i++{
 		s+=fmt.Sprintf("v:%d,a:%d", i, i)
 		if i+1 == nSplits{
-			s +="\" "
+			s+= ""
 			break
 		}
 		s += " "
@@ -95,19 +98,36 @@ func validateNumberOfSplits(nSplits int) int {
 	return nSplits
 }
 
-
-
-func main() {
-	/*cmd := exec.Command("/bin/sh", "-c", "rm " + fmt.Sprintf("%s/%s/*", ServerDirectory, StreamDirectory))
+func transcodeToHLS(nSplits int, streamPath string){
+	command := fmt.Sprintf("ffmpeg -i rtmp://%s/live/%s ", WinServerAddress, "cool") +
+		constructFilterArgs("v", nSplits) +
+		constructMapArgs("v", nSplits, "ultrafast", 10) +
+		constructHLSArgs("5", "5", "event",
+			"independent_segments", fmt.Sprintf("%s/stream%%v_%%03d.ts", streamPath),
+			"main.m3u8", "mpegts", nSplits)
+	var cmd *exec.Cmd
+	// Run either using bash when using linux, or cmd  when using windows
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command(`ffmpeg`)
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+		cmd.SysProcAttr.CmdLine = fmt.Sprintf(`%s -var_stream_map "%s" `, command, constructVarStreamMap(nSplits)) + fmt.Sprintf("%s/stream%%v.m3u8", streamPath)
+		//cmd = exec.Command("cmd", "/C", command, "-var_stream_map", fmt.Sprintf(`"%s"`, constructVarStreamMap(nSplits)), fmt.Sprintf("%s/stream%%v.m3u8", streamPath))
+	case "linux":
+		cmd = exec.Command("/usr/bin/bash", "-c", command, "-val_stream_map", fmt.Sprintf(`"%s"`, constructVarStreamMap(nSplits)), fmt.Sprintf("%s/stream%%v.m3u8", streamPath))
+	}
 	stderr, _ := cmd.StderrPipe()
 	err := cmd.Start()
 	scanner := bufio.NewScanner(stderr)
 	for scanner.Scan(){
 		fmt.Println(scanner.Text())
 	}
-	if err != nil{
-		log.Fatal(err)
-	}*/
+	if err != nil {
+		return
+	}
+}
+
+func main() {
 	// Get the path to server
 	serverPath := "build"
 	localpath, err := os.Getwd()
@@ -115,18 +135,18 @@ func main() {
 		log.Fatal(err)
 		return
 	}
+	streamPath := fmt.Sprintf("%s\\%s\\stream", localpath, serverPath)
 
-	nSplits := 2
+	err = os.RemoveAll(streamPath)
+	if err != nil {
+		println(err)
+	}
+	err = os.Mkdir(streamPath, os.ModePerm)
+	if err != nil {
+		println(err)
+	}
 
-	streamPath := fmt.Sprintf("%s/%s/stream", localpath, serverPath)
-	print(fmt.Sprintf("ffmpeg -i rtmp://%s/live/%s ", WinServerAddress, "cool") +
-		constructFilterArgs("v", nSplits) +
-		constructMapArgs("v", nSplits, "ultrafast", 10) +
-		constructHLSArgs("5", "5", "event",
-			"independent_segments", fmt.Sprintf("%s/stream%%v_%%03d.ts", streamPath),
-			"main.m3u8", "mpegts", nSplits) +
-		fmt.Sprintf("%s/stream%%v.m3u8", streamPath))
-
+	go transcodeToHLS(3, streamPath)
 
 	r := mux.NewRouter()
 	r.PathPrefix("/stream/").Handler(http.StripPrefix("/stream/", http.FileServer(http.Dir(filepath.Join(streamPath)))))
@@ -141,7 +161,6 @@ func main() {
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,
 	}
-
 	log.Fatal(srv.ListenAndServe())
 }
 
