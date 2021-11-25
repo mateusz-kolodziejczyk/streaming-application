@@ -1,21 +1,28 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
+	"github.com/gorilla/mux"
+	"github.com/rs/cors"
+
+	//"io"
 	"log"
 	"math"
-	"os/exec"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"time"
 )
-
+const StreamServerDirectory string = "C:\\Users\\MK\\GolandProjects\\streamingApplication\\build"
 const ServerAddress string = "127.0.0.1"
+const WinServerAddress string = "192.168.0.66"
 const StreamDirectory string = "stream"
 const ServerDirectory string = "/usr/local/nginx/html"
 var outputResolutions [][]int = [][]int{{1920, 1080}, {1280, 720}, {854, 480}, {640, 360}}
 
 // MaxBitrate Bitrate in megabits
-const MaxBitrate float64 = 1
+const MaxBitrate float64 = 5
 
 
 func constructHLSArgs(hls_time string, hls_wrap string, hls_playlist_type string, hls_flags string, hls_segment_filename string, master_pl_name string, hls_segment_type string, nSplits int) string {
@@ -89,8 +96,9 @@ func validateNumberOfSplits(nSplits int) int {
 }
 
 
+
 func main() {
-	cmd := exec.Command("/bin/sh", "-c", "rm " + fmt.Sprintf("%s/%s/*", ServerDirectory, StreamDirectory))
+	/*cmd := exec.Command("/bin/sh", "-c", "rm " + fmt.Sprintf("%s/%s/*", ServerDirectory, StreamDirectory))
 	stderr, _ := cmd.StderrPipe()
 	err := cmd.Start()
 	scanner := bufio.NewScanner(stderr)
@@ -99,13 +107,42 @@ func main() {
 	}
 	if err != nil{
 		log.Fatal(err)
+	}*/
+	// Get the path to server
+	serverPath := "build"
+	localpath, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+		return
 	}
+
 	nSplits := 2
-	print(fmt.Sprintf("ffmpeg -i rtmp://%s/live/%s ", ServerAddress, "cool") +
+
+	streamPath := fmt.Sprintf("%s/%s/stream", localpath, serverPath)
+	print(fmt.Sprintf("ffmpeg -i rtmp://%s/live/%s ", WinServerAddress, "cool") +
 		constructFilterArgs("v", nSplits) +
 		constructMapArgs("v", nSplits, "ultrafast", 10) +
 		constructHLSArgs("5", "5", "event",
-			"independent_segments", "stream_%v\\stream%03d.ts",
+			"independent_segments", fmt.Sprintf("%s/stream%%v_%%03d.ts", streamPath),
 			"main.m3u8", "mpegts", nSplits) +
-		"stream_%v\\stream.m3u8")
+		fmt.Sprintf("%s/stream%%v.m3u8", streamPath))
+
+
+	r := mux.NewRouter()
+	r.PathPrefix("/stream/").Handler(http.StripPrefix("/stream/", http.FileServer(http.Dir(filepath.Join(streamPath)))))
+	c := cors.New(cors.Options{
+		AllowedOrigins: []string{"*"}, // All origins
+		AllowedMethods: []string{"GET"}, // Allowing only get, just an example
+	})
+	srv := &http.Server{
+		Handler:      c.Handler(r),
+		Addr:         "127.0.0.1:8000",
+		// Good practice: enforce timeouts for servers you create!
+		WriteTimeout: 15 * time.Second,
+		ReadTimeout:  15 * time.Second,
+	}
+
+	log.Fatal(srv.ListenAndServe())
 }
+
+
