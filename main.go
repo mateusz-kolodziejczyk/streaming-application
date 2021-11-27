@@ -23,6 +23,7 @@ const ServerAddress string = "127.0.0.1"
 const WinServerAddress string = "192.168.0.66"
 const StreamDirectory string = "stream"
 const ServerDirectory string = "/usr/local/nginx/html"
+const TimeoutMicroSeconds int = 5000000
 var outputResolutions [][]int = [][]int{{1920, 1080}, {1280, 720}, {854, 480}, {640, 360}}
 
 // MaxBitrate Bitrate in megabits
@@ -98,8 +99,34 @@ func validateNumberOfSplits(nSplits int) int {
 	return nSplits
 }
 
+// probeRTMPStream Checks if an rtmp stream exists at the given rtmp server address and streamkey. Returns false if it does not exist and true if it does.
+func probeRTMPStream(streamKey string, address string) bool{
+	cmd := exec.Command("ffprobe", "-v", "error", "-rw_timeout", strconv.Itoa(TimeoutMicroSeconds), fmt.Sprintf("rtmp://%s/live/%s", address, streamKey))
+
+
+	// Code modified from https://stackoverflow.com/questions/10385551/get-exit-code-go
+	// This code checks the exit code. Ffprobe will return 1 if no stream was found, and 0 if one was.
+	if err := cmd.Start(); err != nil {
+		log.Printf("cmd.Start: %v", err)
+	}
+
+	if err := cmd.Wait(); err != nil {
+		if exiterr, ok := err.(*exec.ExitError); ok {
+			// The program has exited with an exit code != 0
+			if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
+				log.Printf("Exit Status: %d", status.ExitStatus())
+			}
+		} else {
+			log.Printf("cmd.Wait: %v", err)
+		}
+		return false
+	}
+
+	return true
+}
+
 func transcodeToHLS(nSplits int, streamPath string){
-	command := fmt.Sprintf("ffmpeg -i rtmp://%s/live/%s ", WinServerAddress, "cool") +
+	command := fmt.Sprintf("ffmpeg -rw_timeout %d -i rtmp://%s/live/%s ", TimeoutMicroSeconds / 10, WinServerAddress, "cool") +
 		constructFilterArgs("v", nSplits) +
 		constructMapArgs("v", nSplits, "ultrafast", 10) +
 		constructHLSArgs("5", "5", "event",
@@ -127,6 +154,29 @@ func transcodeToHLS(nSplits int, streamPath string){
 	}
 }
 
+func startHLSStream(nSplits int, streamPath string, streamKey string){
+	// Clear the directory containing the stream
+	streamPath = streamPath + "/" + streamKey
+	clearDirectory(streamPath)
+	// Check if rtmp stream exists
+	// If it does, start the hls conversion process
+	if probeRTMPStream(streamKey, WinServerAddress){
+		go transcodeToHLS(nSplits, streamPath)
+	}
+}
+
+// clearDirectory Deletes all files within a directory. It does this by removing the directory and recreating it afterwards.
+func clearDirectory(directory string){
+	err := os.RemoveAll(directory)
+	if err != nil {
+		println(err)
+	}
+	err = os.Mkdir(directory, os.ModePerm)
+	if err != nil {
+		println(err)
+	}
+}
+
 func main() {
 	// Get the path to server
 	serverPath := "build"
@@ -137,16 +187,8 @@ func main() {
 	}
 	streamPath := fmt.Sprintf("%s\\%s\\stream", localpath, serverPath)
 
-	err = os.RemoveAll(streamPath)
-	if err != nil {
-		println(err)
-	}
-	err = os.Mkdir(streamPath, os.ModePerm)
-	if err != nil {
-		println(err)
-	}
+	go startHLSStream(3, streamPath, "cool")
 
-	go transcodeToHLS(3, streamPath)
 
 	r := mux.NewRouter()
 	r.PathPrefix("/stream/").Handler(http.StripPrefix("/stream/", http.FileServer(http.Dir(filepath.Join(streamPath)))))
@@ -156,7 +198,7 @@ func main() {
 	})
 	srv := &http.Server{
 		Handler:      c.Handler(r),
-		Addr:         "127.0.0.1:8000",
+		Addr:         "127.0.0.1:3000",
 		// Good practice: enforce timeouts for servers you create!
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,
