@@ -13,10 +13,16 @@ func createUser(db *sql.DB, username string, streamKey string) error{
 	return err
 }
 
-func getUser(db *sql.DB, username string) (User, error){
+func getUserByUsername(db *sql.DB, username string) (User, error){
 	row := db.QueryRow("SELECT * FROM users WHERE username = $1", username)
 	user := User{}
 	err := row.Scan(&user.id, &user.username, &user.streamKey)
 	return user, err
 }
 
+func getUserByStreamKey(db *sql.DB, streamKey string) (User, error){
+	row := db.QueryRow("SELECT * FROM users WHERE stream_key = $1", streamKey)
+	user := User{}
+	err := row.Scan(&user.id, &user.username, &user.streamKey)
+	return user, err
+}

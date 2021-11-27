@@ -42,7 +42,7 @@ func postUser(){
 func startStreamHandler(w http.ResponseWriter, r *http.Request){
 	vars := mux.Vars(r)
 	username := vars["username"]
-	user, err := getUser(app.DB, username)
+	user, err := getUserByUsername(app.DB, username)
 	if err != nil {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return

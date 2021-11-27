@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"math"
@@ -101,13 +100,19 @@ func transcodeToHLS(nSplits int, streamPath string, streamKey string) {
 	case "linux":
 		cmd = exec.Command("/usr/bin/bash", "-c", ffmpegCommand, "-val_stream_map", fmt.Sprintf(`"%s"`, constructVarStreamMap(nSplits)), fmt.Sprintf("%s/stream%%v.m3u8", streamPath))
 	}
-	stderr, _ := cmd.StderrPipe()
-	err := cmd.Start()
-	scanner := bufio.NewScanner(stderr)
-	for scanner.Scan() {
-		fmt.Println(scanner.Text())
-	}
+	user, err := getUserByStreamKey(app.DB, streamKey)
 	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	// Run command until it ends
+	err = cmd.Run()
+	if err != nil{
+		fmt.Println(err)
+	}
+	err = endStream(app.DB, user)
+	if err != nil {
+		fmt.Println(err)
 		return
 	}
 }
@@ -117,6 +122,17 @@ func startHLSStream(nSplits int, streamPath string, streamKey string) {
 	// Check if rtmp stream exists
 	// If it does, start the hls conversion process
 	if probeRTMPStream(streamKey, WinServerAddress) {
+		// Try to create entry in database before starting transcoding
+		user, err := getUserByStreamKey(app.DB, streamKey)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		err = createStream(app.DB, user.id)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 		go transcodeToHLS(nSplits, streamPath, streamKey)
 	}
 }
@@ -135,7 +151,7 @@ func probeRTMPStream(streamKey string, address string) bool {
 		if exiterr, ok := err.(*exec.ExitError); ok {
 			// The program has exited with an exit code != 0
 			if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
-				log.Printf("Exit Status: %d", status.ExitStatus())
+				log.Printf("FFprobe Exit Status: %d", status.ExitStatus())
 			}
 		} else {
 			log.Printf("cmd.Wait: %v", err)
