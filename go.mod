@@ -7,6 +7,7 @@ require (
 	github.com/jackc/pgx/v4 v4.14.0
 	github.com/joho/godotenv v1.4.0
 	github.com/rs/cors v1.8.0
+	gopkg.in/guregu/null.v3 v3.5.0
 )
 
 require (

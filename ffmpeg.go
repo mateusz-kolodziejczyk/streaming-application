@@ -128,12 +128,12 @@ func startHLSStream(nSplits int, streamPath string, streamKey string) {
 			fmt.Println(err)
 			return
 		}
-		err = createStream(app.DB, user.id)
+		err = createStream(app.DB, user.ID)
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
-		go transcodeToHLS(nSplits, streamPath, streamKey)
+		transcodeToHLS(nSplits, streamPath, streamKey)
 	}
 }
 

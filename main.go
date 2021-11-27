@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
@@ -27,21 +28,19 @@ var outputResolutions [][]int = [][]int{{1920, 1080}, {1280, 720}, {854, 480}, {
 // MaxBitrate Bitrate in megabits
 const MaxBitrate float64 = 5
 
-
 var app App
 
-func getStreamURL(){
+func getStreamURL() {
 
 }
 
-func postUser(){
+func postUser() {
 
 }
 
-
-func startStreamHandler(w http.ResponseWriter, r *http.Request){
+func startStreamHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	username := vars["username"]
+	username := vars["Username"]
 	user, err := getUserByUsername(app.DB, username)
 	if err != nil {
 		http.Error(w, "User not found", http.StatusNotFound)
@@ -51,16 +50,37 @@ func startStreamHandler(w http.ResponseWriter, r *http.Request){
 
 	// If there is no error then an ongoing stream exists for the user
 	if err == nil {
-			http.Error(w, "Stream already running", http.StatusConflict)
-			return
+		http.Error(w, "Stream already running", http.StatusConflict)
+		return
 	}
-
-	go startHLSStream(3, fmt.Sprintf("%s\\stream\\%s", app.Path, username), user.streamKey)
+	// Probe the RTMP stream to check if it's running.
+	if !probeRTMPStream(user.StreamKey, WinServerAddress){
+		http.Error(w, "Origin stream not found", http.StatusNotFound)
+		return
+	}
+	go startHLSStream(3, fmt.Sprintf("%s\\stream\\%s", app.Path, username), user.StreamKey)
 
 	w.WriteHeader(http.StatusOK)
 }
 
+func addUserHandler(w http.ResponseWriter, r *http.Request) {
+	var u User
 
+	// Turn the request body into a user struct
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&u)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err = createUser(app.DB, u)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
 
 func main() {
 	// Load environmental variables
@@ -70,11 +90,11 @@ func main() {
 	}
 	app.Initialize()
 
-
 	streamPath := fmt.Sprintf("%s\\stream", app.Path)
 	//go startHLSStream(3, streamPath, "cool")
 
-	app.Router.HandleFunc("/api/stream/{username}", startStreamHandler).Methods("POST")
+	app.Router.HandleFunc("/api/user", addUserHandler).Methods("POST")
+	app.Router.HandleFunc("/api/stream/{Username}", startStreamHandler).Methods("POST")
 	app.Router.PathPrefix("/stream/").Handler(http.StripPrefix("/stream/", http.FileServer(http.Dir(filepath.Join(streamPath)))))
 
 	c := cors.New(cors.Options{
