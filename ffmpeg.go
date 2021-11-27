@@ -83,8 +83,8 @@ func validateNumberOfSplits(nSplits int) int {
 	return nSplits
 }
 
-func transcodeToHLS(nSplits int, streamPath string) {
-	ffmpegCommand := fmt.Sprintf("ffmpeg -rw_timeout %d -i rtmp://%s/live/%s ", TimeoutMicroSeconds/10, WinServerAddress, "cool") +
+func transcodeToHLS(nSplits int, streamPath string, streamKey string) {
+	ffmpegCommand := fmt.Sprintf("ffmpeg -rw_timeout %d -i rtmp://%s/live/%s ", TimeoutMicroSeconds/10, WinServerAddress, streamKey) +
 		constructFilterArgs("v", nSplits) +
 		constructMapArgs("v", nSplits, "ultrafast", 10) +
 		constructHLSArgs("5", "5", "event",
@@ -113,13 +113,11 @@ func transcodeToHLS(nSplits int, streamPath string) {
 }
 
 func startHLSStream(nSplits int, streamPath string, streamKey string) {
-	// Clear the directory containing the stream
-	path := streamPath + "/" + streamKey
-	clearDirectory(path)
+	clearDirectory(streamPath)
 	// Check if rtmp stream exists
 	// If it does, start the hls conversion process
 	if probeRTMPStream(streamKey, WinServerAddress) {
-		go transcodeToHLS(nSplits, path)
+		go transcodeToHLS(nSplits, streamPath, streamKey)
 	}
 }
 

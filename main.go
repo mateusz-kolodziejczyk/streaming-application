@@ -1,8 +1,6 @@
 package main
 
 import (
-	"database/sql"
-	"errors"
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
@@ -12,7 +10,6 @@ import (
 	//"io"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
 	"time"
 )
@@ -41,49 +38,28 @@ func postUser(){
 
 }
 
-func endStream(db *sql.DB, streamID int) error{
-	// First check if stream has an end time already
-	// If it does return an error
-	err := streamOngoing(db, streamID)
-	if err != nil {
-		return err
-	}
-
-	endTime := time.Now()
-	_, err = db.Exec(`UPDATE streams 
-							SET end_time = $1 
-							WHERE id = $2`, endTime, streamID)
-	return err
-}
 
 func startStreamHandler(w http.ResponseWriter, r *http.Request){
 	vars := mux.Vars(r)
 	username := vars["username"]
-	_, err := getUser(app.DB, username)
+	user, err := getUser(app.DB, username)
 	if err != nil {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
+	_, err = getOngoingStream(app.DB, user)
 
-}
-
-// streamOngoing Returns an error if the stream has ended and nil if it exists and hasn't.
-func streamOngoing(db *sql.DB, streamID int) error {
-	row := db.QueryRow("SELECT end_time FROM streams WHERE id = $1", streamID)
-	stream := Stream{}
-	err := row.Scan(&stream.endTime)
-
-	if err != nil {
-		return err
+	// If there is no error then an ongoing stream exists for the user
+	if err == nil {
+			http.Error(w, "Stream already running", http.StatusConflict)
+			return
 	}
 
-	// If the endtime is valid that means that it exists and should not be updated
-	if stream.endTime.Valid{
-		err = errors.New("stream has already ended")
-	}
+	go startHLSStream(3, fmt.Sprintf("%s\\stream\\%s", app.Path, username), user.streamKey)
 
-	return err
+	w.WriteHeader(http.StatusOK)
 }
+
 
 
 func main() {
@@ -93,16 +69,12 @@ func main() {
 		log.Fatalf("Error loading .env file")
 	}
 	app.Initialize()
-	// Get the path to server
-	localpath, err := os.Getwd()
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
-	streamPath := fmt.Sprintf("%s\\%s\\stream", localpath, LocalServerPath)
+
+
+	streamPath := fmt.Sprintf("%s\\stream", app.Path)
 	//go startHLSStream(3, streamPath, "cool")
 
-	app.Router.HandleFunc("/api/stream/{username}", startStreamHandler).Methods("GET")
+	app.Router.HandleFunc("/api/stream/{username}", startStreamHandler).Methods("POST")
 	app.Router.PathPrefix("/stream/").Handler(http.StripPrefix("/stream/", http.FileServer(http.Dir(filepath.Join(streamPath)))))
 
 	c := cors.New(cors.Options{
